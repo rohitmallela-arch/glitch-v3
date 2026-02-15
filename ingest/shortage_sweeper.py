@@ -148,4 +148,6 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
         "last_sweep_completed_at": datetime.now(timezone.utc).isoformat(),
     })
 
-    return {"ok": True, "processed": processed, "changed": changed, "baseline_completed": (mode=="baseline")}
+    # Report real baseline state (not just whether this run was "baseline")
+    baseline_completed_out = bool(state_repo.get_state().get("baseline_completed", False))
+    return {"ok": True, "processed": processed, "changed": changed, "baseline_completed": baseline_completed_out}
