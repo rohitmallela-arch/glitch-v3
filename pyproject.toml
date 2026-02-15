@@ -1,0 +1,9 @@
+[project]
+name = "glitch"
+version = "2.0.0"
+description = "Glitch — Drug shortage alerts for pharmacies (FastAPI, Firestore, GCS, Stripe, Telegram)"
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

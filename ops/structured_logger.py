@@ -1,0 +1,30 @@
+from __future__ import annotations
+
+import json
+import logging
+import sys
+import time
+from typing import Any, Dict
+
+
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload: Dict[str, Any] = {
+            "severity": record.levelname,
+            "message": record.getMessage(),
+            "logger": record.name,
+            "time_unix": time.time(),
+        }
+        if hasattr(record, "extra") and isinstance(record.extra, dict):
+            payload.update(record.extra)
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def setup_logging(level: str = "INFO") -> None:
+    root = logging.getLogger()
+    root.setLevel(level)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JsonFormatter())
+    root.handlers[:] = [handler]
