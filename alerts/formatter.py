@@ -20,12 +20,13 @@ def format_shortage_change_alert(payload: Dict[str, Any]) -> str:
     if mfg:
         extra.append(f"Manufacturer: {mfg}")
     extra_txt = "\n".join(extra)
+    last_line = f"Last Updated: {last}\n" if last else ""
 
     return (
         f"<b>Glitch Alert</b>\n"
         f"<b>{name}</b>\n"
         f"NDC: <code>{ndc}</code>\n"
         f"Status: <b>{old_s}</b> → <b>{new_s}</b>\n"
-        f"{('Last Updated: ' + str(last) + '\n') if last else ''}"
+        f"{last_line}"
         f"{extra_txt}"
     ).strip()
