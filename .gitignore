@@ -16,3 +16,7 @@
 
 # local-only artifacts
 local_audit_artifacts/
+
+# python caches
+__pycache__/
+*.pyc

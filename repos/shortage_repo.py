@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from google.cloud.firestore import Client
 from storage.firestore_client import get_firestore_client
-from models.schema import COL_SHORTAGES
+from models.schema import COL_SHORTAGES, COL_SHORTAGE_VARIANTS
 
 
 class ShortageRepository:
@@ -20,3 +20,11 @@ class ShortageRepository:
 
     def upsert(self, ndc_digits: str, data: Dict[str, Any]) -> None:
         self.db.collection(COL_SHORTAGES).document(ndc_digits).set(data, merge=True)
+
+    def upsert_variant(self, ndc_digits: str, variant_key: str, data: Dict[str, Any]) -> None:
+        """
+        Write variant doc at shortages/{ndc_digits}/variants/{variant_key}.
+        """
+        self.db.collection(COL_SHORTAGES).document(ndc_digits) \
+            .collection(COL_SHORTAGE_VARIANTS).document(variant_key) \
+            .set(data, merge=True)

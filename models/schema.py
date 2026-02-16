@@ -8,6 +8,7 @@ COL_SUBSCRIPTIONS = "subscriptions"
 COL_WATCHLISTS = "watchlists"  # watchlists/{user_id}/items/{ndc_digits}
 COL_NDC_INDEX = "ndc_index"
 COL_SHORTAGES = "shortages"
+COL_SHORTAGE_VARIANTS = "variants"  # shortages/{ndc}/variants/{variant_key}
 COL_ALERTS = "alerts"
 COL_DELIVERY_LOGS = "delivery_logs"
 COL_WEEKLY_RECAPS = "weekly_recaps"
