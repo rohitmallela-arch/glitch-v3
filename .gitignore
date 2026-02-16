@@ -10,3 +10,9 @@
 
 # local python venv
 .venv/
+
+# local-only backups
+*.bak*
+
+# local-only artifacts
+local_audit_artifacts/
