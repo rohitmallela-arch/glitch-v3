@@ -7,3 +7,6 @@
 *.p12
 *service-account*.json
 *credentials*.json
+
+# local python venv
+.venv/
