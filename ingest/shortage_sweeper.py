@@ -9,6 +9,7 @@ from ingest.openfda_client import fetch_shortages_page
 from ingest.delta_engine import snapshot_hash, variant_key
 from ndc.resolver import NDCResolver
 from ndc.normalizer import normalize_ndc_to_11
+from ops.metrics import Timer
 from repos.ingest_state_repo import IngestStateRepository
 from repos.shortage_repo import ShortageRepository
 from repos.ndc_watchers_repo import NDCWatchersRepository
@@ -21,27 +22,48 @@ log = logging.getLogger("glitch.ingest.sweeper")
 
 
 def sweep_all_shortages() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    t = Timer()
     limit = settings.OPENFDA_LIMIT
     max_items = settings.MAX_SWEEP_ITEMS
     all_results: List[Dict[str, Any]] = []
     skip = 0
-    meta_last = {}
+    meta_last: Dict[str, Any] = {}
 
     while True:
         page, meta = fetch_shortages_page(skip=skip, limit=limit)
-        meta_last = meta
+        meta_last = meta or {}
         if not page:
             break
         all_results.extend(page)
         if len(all_results) >= max_items:
             # Fail-closed
+            log.error(
+                "max_sweep_items_exceeded",
+                extra={"extra": {"fetched": len(all_results), "cap": max_items, "limit": limit, "skip": skip}},
+            )
             raise RuntimeError(f"max_sweep_items_exceeded: fetched={len(all_results)} cap={max_items}")
         skip += limit
 
-    return all_results, {"meta": meta_last, "total_fetched": len(all_results)}
+    out_meta = {"meta": meta_last, "total_fetched": len(all_results)}
+
+    # Phase V2: fetch metrics event (log-based metrics)
+    log.info(
+        "sweep_fetch_metrics",
+        extra={
+            "extra": {
+                "fetch_total_fetched": out_meta["total_fetched"],
+                "fetch_duration_ms": t.ms(),
+                "openfda_limit": limit,
+                "max_sweep_items": max_items,
+            }
+        },
+    )
+
+    return all_results, out_meta
 
 
 def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[str, Any]:
+    t = Timer()
     state_repo = IngestStateRepository()
     shortage_repo = ShortageRepository()
     resolver = NDCResolver()
@@ -51,7 +73,18 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
 
     if mode == "delta" and not baseline_completed:
         # Fail-closed: do not alert, do not process as delta before baseline
+        log.warning(
+            "baseline_not_completed",
+            extra={"extra": {"mode": mode, "baseline_completed": baseline_completed}},
+        )
         return {"ok": False, "error": "baseline_not_completed", "processed": 0, "changed": 0}
+
+    # For anomaly detection (best-effort, skip if missing)
+    prev_changed = state.get("last_sweep_changed", None)
+    try:
+        prev_changed_int = int(prev_changed) if prev_changed is not None else None
+    except Exception:
+        prev_changed_int = None
 
     changed = 0
     processed = 0
@@ -64,6 +97,12 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
         if not ndc11:
             continue
         grouped.setdefault(ndc11, []).append(r)
+
+    # Phase V2: variants_count distribution buckets (computed across grouped NDCs)
+    bucket_1 = 0
+    bucket_2_3 = 0
+    bucket_4_9 = 0
+    bucket_10_plus = 0
 
     for ndc11, recs in grouped.items():
         existing = shortage_repo.get(ndc11) or {}
@@ -97,6 +136,17 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
             }
             shortage_repo.upsert_variant(ndc11, vkey, variant_doc)
             processed += 1  # preserve historical meaning: records processed
+
+        # Phase V2: variant count buckets
+        vc = len(vkey_to_hash)
+        if vc <= 1:
+            bucket_1 += 1
+        elif vc <= 3:
+            bucket_2_3 += 1
+        elif vc <= 9:
+            bucket_4_9 += 1
+        else:
+            bucket_10_plus += 1
 
         # Deterministic headline: lexicographically smallest variant_key.
         headline_vkey = sorted(vkey_to_hash.keys())[0]
@@ -166,9 +216,19 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
                     # Rate limit reservation (transactional)
                     day_key = utc_day_key()
                     tx = rate_repo.db.transaction()
-                    ok, reason = rate_repo.reserve_quota(tx, watcher_user_id, ndc11, day_key, settings.MAX_ALERTS_PER_DAY, settings.MAX_ALERTS_PER_NDC_PER_DAY)
+                    ok, reason = rate_repo.reserve_quota(
+                        tx,
+                        watcher_user_id,
+                        ndc11,
+                        day_key,
+                        settings.MAX_ALERTS_PER_DAY,
+                        settings.MAX_ALERTS_PER_NDC_PER_DAY,
+                    )
                     if not ok:
-                        log.info("rate_limit_skip", extra={"extra": {"user_id": watcher_user_id, "ndc": ndc11, "reason": reason}})
+                        log.info(
+                            "rate_limit_skip",
+                            extra={"extra": {"user_id": watcher_user_id, "ndc": ndc11, "reason": reason}},
+                        )
                         continue
 
                     payload = {
@@ -185,14 +245,67 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
     if mode == "baseline":
         state_repo.set_baseline_completed()
 
-    state_repo.update_sweep_metrics({
-        "last_sweep_started_at": datetime.now(timezone.utc).isoformat(),
-        "last_sweep_mode": mode,
-        "last_sweep_total_processed": processed,
-        "last_sweep_changed": changed,
-        "last_sweep_completed_at": datetime.now(timezone.utc).isoformat(),
-    })
+    # Persist sweep metrics (existing behavior preserved)
+    state_repo.update_sweep_metrics(
+        {
+            "last_sweep_started_at": datetime.now(timezone.utc).isoformat(),
+            "last_sweep_mode": mode,
+            "last_sweep_total_processed": processed,
+            "last_sweep_changed": changed,
+            "last_sweep_completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
     # Report real baseline state (not just whether this run was "baseline")
     baseline_completed_out = bool(state_repo.get_state().get("baseline_completed", False))
+
+    # Phase V2: primary run metrics event (log-based metrics)
+    log.info(
+        "delta_run_metrics",
+        extra={
+            "extra": {
+                "mode": mode,
+                "delta_processed": processed,
+                "delta_changed": changed,
+                "delta_duration_ms": t.ms(),
+                "delta_errors": 0,
+                "ndc_groups": len(grouped),
+                "baseline_completed": baseline_completed_out,
+            }
+        },
+    )
+
+    # Phase V2: variants distribution event (log-based metrics)
+    log.info(
+        "variants_count_buckets",
+        extra={
+            "extra": {
+                "mode": mode,
+                "ndc_groups": len(grouped),
+                "variants_1": bucket_1,
+                "variants_2_3": bucket_2_3,
+                "variants_4_9": bucket_4_9,
+                "variants_10_plus": bucket_10_plus,
+            }
+        },
+    )
+
+    # Phase V2: churn anomaly guard (best-effort, logs only)
+    if mode == "delta" and baseline_completed_out and prev_changed_int is not None:
+        threshold = max(20, prev_changed_int * 5)
+        if changed >= threshold:
+            log.error(
+                "delta_changed_anomaly",
+                extra={
+                    "extra": {
+                        "mode": mode,
+                        "prev_changed": prev_changed_int,
+                        "changed": changed,
+                        "threshold": threshold,
+                        "ndc_groups": len(grouped),
+                        "delta_processed": processed,
+                    }
+                },
+            )
+
     return {"ok": True, "processed": processed, "changed": changed, "baseline_completed": baseline_completed_out}

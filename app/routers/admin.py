@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Request
 from security.operator_auth import verify_operator_request, OperatorClaims
 from ingest.shortage_sweeper import sweep_all_shortages, upsert_and_detect_changes
@@ -13,6 +15,8 @@ from repos.subscription_repo import SubscriptionRepository
 from config.settings import settings
 
 
+log = logging.getLogger("glitch.routers.admin")
+
 
 @router.get("/whoami")
 def whoami(request: Request):
@@ -23,16 +27,48 @@ def whoami(request: Request):
 @router.post("/run_delta_now")
 def run_delta_now(request: Request):
     verify_operator_request(request)
-    recs, meta = sweep_all_shortages()
-    result = upsert_and_detect_changes(recs, mode="delta")
+    try:
+        recs, meta = sweep_all_shortages()
+    except Exception as e:
+        log.error(
+            "delta_error",
+            extra={"extra": {"stage": "fetch", "mode": "delta", "error_type": type(e).__name__, "message": str(e)}},
+            exc_info=True,
+        )
+        raise
+    try:
+        result = upsert_and_detect_changes(recs, mode="delta")
+    except Exception as e:
+        log.error(
+            "delta_error",
+            extra={"extra": {"stage": "upsert", "mode": "delta", "error_type": type(e).__name__, "message": str(e)}},
+            exc_info=True,
+        )
+        raise
     return {"ok": True, "meta": meta, "result": result}
 
 
 @router.post("/run_baseline_now")
 def run_baseline_now(request: Request):
     verify_operator_request(request)
-    recs, meta = sweep_all_shortages()
-    result = upsert_and_detect_changes(recs, mode="baseline")
+    try:
+        recs, meta = sweep_all_shortages()
+    except Exception as e:
+        log.error(
+            "delta_error",
+            extra={"extra": {"stage": "fetch", "mode": "baseline", "error_type": type(e).__name__, "message": str(e)}},
+            exc_info=True,
+        )
+        raise
+    try:
+        result = upsert_and_detect_changes(recs, mode="baseline")
+    except Exception as e:
+        log.error(
+            "delta_error",
+            extra={"extra": {"stage": "upsert", "mode": "baseline", "error_type": type(e).__name__, "message": str(e)}},
+            exc_info=True,
+        )
+        raise
     return {"ok": True, "meta": meta, "result": result}
 
 
