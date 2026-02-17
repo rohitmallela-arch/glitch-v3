@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 from google.cloud.firestore import Client
+from google.cloud import firestore
 from storage.firestore_client import get_firestore_client
 from models.schema import COL_USERS
 
