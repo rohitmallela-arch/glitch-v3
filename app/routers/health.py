@@ -2,6 +2,6 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-@router.get("/healthz")
+@router.get("/health")
 def healthz():
     return {"ok": True, "service": "glitch-api"}
