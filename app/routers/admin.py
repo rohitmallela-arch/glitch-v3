@@ -130,7 +130,6 @@ def test_alert(request: Request, body: TestAlertRequest, claims: OperatorClaims 
 
     user_id = body.user_id.strip()
     users_repo = UserRepository()
-    subs_repo = SubscriptionRepository()
 
     user = users_repo.get(user_id)
     if not user:
@@ -139,14 +138,6 @@ def test_alert(request: Request, body: TestAlertRequest, claims: OperatorClaims 
     chat_id = user.get("telegram_chat_id")
     if not chat_id:
         return {"ok": False, "error": "telegram_not_connected", "user_id": user_id}
-
-    if settings.PAYMENTS_ENABLED:
-        sub = subs_repo.get_by_user(user_id) or {}
-        if sub.get("status") != "active":
-            return {"ok": False, "error": "subscription_required", "user_id": user_id}
-
-    if not user.get("activated_at"):
-        return {"ok": False, "error": "user_not_activated", "user_id": user_id}
 
     msg = f"✅ <b>Glitch test alert</b>\nuser_id={user_id}\nIf you see this, Telegram delivery is working."
     resp = MessageDispatcher().send_telegram(chat_id=str(chat_id), text=msg)
