@@ -23,7 +23,7 @@ class UserRepository:
         snap = ref.get()
         if snap.exists:
             return snap.to_dict() or {"user_id": user_id}
-        ref.set({**data, "created_at": self.db.SERVER_TIMESTAMP}, merge=False)
+        ref.set({**data, "created_at": firestore.SERVER_TIMESTAMP}, merge=False)
         return {**data, "user_id": user_id}
 
     def update(self, user_id: str, data: Dict[str, Any]) -> None:
