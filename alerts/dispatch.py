@@ -19,7 +19,7 @@ class AlertDispatcher:
         self.alerts = AlertsRepository()
         self.delivery = DeliveryLogRepository()
 
-    def dispatch_telegram(self, user_id: str, chat_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def dispatch_telegram(self, user_id: str, chat_id: str, payload: Dict[str, Any], sweep_id: Optional[str] = None) -> Dict[str, Any]:
         msg = format_shortage_change_alert(payload)
         resp = self.dispatcher.send_telegram(chat_id=chat_id, text=msg)
         alert_id = str(uuid.uuid4())
@@ -34,6 +34,7 @@ class AlertDispatcher:
             "new_status": payload.get("new_status"),
             "created_at": now,
             "ok": bool(resp.get("ok")),
+            "sweep_id": sweep_id,
         })
 
         self.delivery.write(str(uuid.uuid4()), {
@@ -43,5 +44,6 @@ class AlertDispatcher:
             "created_at": now,
             "ok": bool(resp.get("ok")),
             "resp": resp,
+            "sweep_id": sweep_id,
         })
         return resp

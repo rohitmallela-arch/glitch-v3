@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -23,6 +24,7 @@ log = logging.getLogger("glitch.ingest.sweeper")
 
 def sweep_all_shortages() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     t = Timer()
+    fetch_id = str(uuid.uuid4())
     limit = settings.OPENFDA_LIMIT
     max_items = settings.MAX_SWEEP_ITEMS
     all_results: List[Dict[str, Any]] = []
@@ -39,18 +41,18 @@ def sweep_all_shortages() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
             # Fail-closed
             log.error(
                 "max_sweep_items_exceeded",
-                extra={"extra": {"fetched": len(all_results), "cap": max_items, "limit": limit, "skip": skip}},
+                extra={"extra": {"fetch_id": fetch_id, "fetched": len(all_results), "cap": max_items, "limit": limit, "skip": skip}},
             )
             raise RuntimeError(f"max_sweep_items_exceeded: fetched={len(all_results)} cap={max_items}")
         skip += limit
 
-    out_meta = {"meta": meta_last, "total_fetched": len(all_results)}
+    out_meta = {"meta": meta_last, "total_fetched": len(all_results), "fetch_id": fetch_id}
 
     # Phase V2: fetch metrics event (log-based metrics)
     log.info(
         "sweep_fetch_metrics",
         extra={
-            "extra": {
+            "extra": {"fetch_id": fetch_id, 
                 "fetch_total_fetched": out_meta["total_fetched"],
                 "fetch_duration_ms": t.ms(),
                 "openfda_limit": limit,
@@ -64,6 +66,7 @@ def sweep_all_shortages() -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
 
 def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[str, Any]:
     t = Timer()
+    sweep_id = str(uuid.uuid4())
     state_repo = IngestStateRepository()
     shortage_repo = ShortageRepository()
     resolver = NDCResolver()
@@ -75,7 +78,7 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
         # Fail-closed: do not alert, do not process as delta before baseline
         log.warning(
             "baseline_not_completed",
-            extra={"extra": {"mode": mode, "baseline_completed": baseline_completed}},
+            extra={"extra": {"sweep_id": sweep_id, "mode": mode, "baseline_completed": baseline_completed}},
         )
         return {"ok": False, "error": "baseline_not_completed", "processed": 0, "changed": 0}
 
@@ -88,6 +91,13 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
 
     changed = 0
     processed = 0
+
+    # Phase V2: delivery counters (log-only; does not change behavior)
+    alerts_attempted = 0
+    alerts_ok = 0
+    alerts_failed = 0
+    telegram_exceptions = 0
+    rate_limit_skips = 0
 
     # Group upstream records by NDC11 to prevent variant flip-flop overwrites.
     grouped: Dict[str, List[Dict[str, Any]]] = {}
@@ -225,9 +235,10 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
                         settings.MAX_ALERTS_PER_NDC_PER_DAY,
                     )
                     if not ok:
+                        rate_limit_skips += 1
                         log.info(
                             "rate_limit_skip",
-                            extra={"extra": {"user_id": watcher_user_id, "ndc": ndc11, "reason": reason}},
+                            extra={"extra": {"sweep_id": sweep_id, "user_id": watcher_user_id, "ndc": ndc11, "reason": reason}},
                         )
                         continue
 
@@ -240,7 +251,20 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
                         "new_status": new_status,
                         "last_updated": doc.get("last_updated"),
                     }
-                    alert_dispatcher.dispatch_telegram(watcher_user_id, chat_id, payload)
+                    alerts_attempted += 1
+                    try:
+                        resp = alert_dispatcher.dispatch_telegram(watcher_user_id, chat_id, payload, sweep_id=sweep_id)
+                        ok = bool(resp.get("ok", False))
+                        if ok:
+                            alerts_ok += 1
+                        else:
+                            alerts_failed += 1
+                        log.info("telegram_send_result", extra={"extra": {"sweep_id": sweep_id, "mode": mode, "user_id": watcher_user_id, "ndc": ndc11, "ok": ok}})
+                    except Exception as e:
+                        telegram_exceptions += 1
+                        log.exception("telegram_send_exception", extra={"extra": {"sweep_id": sweep_id, "mode": mode, "user_id": watcher_user_id, "ndc": ndc11, "error_class": e.__class__.__name__}})
+                        raise
+
 
     if mode == "baseline":
         state_repo.set_baseline_completed()
@@ -263,7 +287,7 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
     log.info(
         "delta_run_metrics",
         extra={
-            "extra": {
+            "extra": {"sweep_id": sweep_id, 
                 "mode": mode,
                 "delta_processed": processed,
                 "delta_changed": changed,
@@ -271,6 +295,11 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
                 "delta_errors": 0,
                 "ndc_groups": len(grouped),
                 "baseline_completed": baseline_completed_out,
+                "alerts_attempted": alerts_attempted,
+                "alerts_ok": alerts_ok,
+                "alerts_failed": alerts_failed,
+                "telegram_exceptions": telegram_exceptions,
+                "rate_limit_skips": rate_limit_skips,
             }
         },
     )
@@ -279,7 +308,7 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
     log.info(
         "variants_count_buckets",
         extra={
-            "extra": {
+            "extra": {"sweep_id": sweep_id, 
                 "mode": mode,
                 "ndc_groups": len(grouped),
                 "variants_1": bucket_1,
@@ -297,7 +326,7 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
             log.error(
                 "delta_changed_anomaly",
                 extra={
-                    "extra": {
+                    "extra": {"sweep_id": sweep_id, 
                         "mode": mode,
                         "prev_changed": prev_changed_int,
                         "changed": changed,
