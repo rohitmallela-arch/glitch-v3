@@ -13,6 +13,7 @@ from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
 from config.settings import settings
 from repos.user_repo import UserRepository
+from repos.auth_repo import AuthRepository
 
 log = logging.getLogger("glitch.router.messaging")
 router = APIRouter()
@@ -25,13 +26,7 @@ class WelcomeRequest(BaseModel):
 
 @router.post("/telegram/welcome")
 def telegram_welcome(req: WelcomeRequest):
-    user = UserRepository().get(req.user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="user_not_found")
-    UserRepository().update(req.user_id, {"telegram_chat_id": req.telegram_chat_id})
-    resp = MessageDispatcher().send_telegram(chat_id=req.telegram_chat_id, text="<b>Welcome to Glitch</b>\nYou're set up. We'll stay silent unless something changes.")
-    return {"ok": True, "resp": resp}
-
+    raise HTTPException(status_code=410, detail="deprecated_use_auth_and_link_flow")
 
 @router.post("/twilio/inbound")
 async def twilio_inbound(request: Request):
@@ -61,6 +56,30 @@ async def twilio_inbound(request: Request):
 
     if not user:
         twiml.message("We couldn't find your account. Please sign up and complete checkout first.")
+        return Response(content=str(twiml), media_type="application/xml")
+
+    # Reverse-OTP login: user texts "LOGIN <code>" to prove phone possession.
+    if body.startswith("LOGIN "):
+        code = body.replace("LOGIN ", "", 1).strip().upper()
+        ch = AuthRepository().get_challenge_by_code(code)
+        if not ch:
+            twiml.message("Invalid or expired code. Please request a new login code in the app.")
+            return Response(content=str(twiml), media_type="application/xml")
+        now = int(__import__("time").time())
+        exp = int(ch.get("expires_at") or 0)
+        if exp <= now or ch.get("consumed_at"):
+            twiml.message("Code expired. Please request a new login code in the app.")
+            return Response(content=str(twiml), media_type="application/xml")
+        if str(ch.get("phone_e164") or "") != from_phone:
+            twiml.message("Phone mismatch. Please request a new code from this phone.")
+            return Response(content=str(twiml), media_type="application/xml")
+        if str(ch.get("user_id") or "") != user_id:
+            twiml.message("Account mismatch. Please request a new code.")
+            return Response(content=str(twiml), media_type="application/xml")
+        AuthRepository().mark_verified(str(ch.get("challenge_id") or ""), from_phone_e164=from_phone)
+        flags = AuthRepository().activate_user_if_needed(user_id=str(ch.get("user_id") or ""), phone_e164=from_phone)
+        log.info("auth_verified_and_activated", extra={"extra": {"user_id": str(ch.get("user_id") or ""), **(flags or {})}})
+        twiml.message("✅ Verified. Return to the app to complete login.")
         return Response(content=str(twiml), media_type="application/xml")
 
     if body == "YES":
