@@ -147,4 +147,15 @@ async def telegram_inbound(request: Request):
     log.info("auth_verified_and_activated", extra={"extra": {"user_id": str(ch.get("user_id") or ""), **(flags or {})}})
 
     MessageDispatcher().send_telegram(chat_id=str(chat_id), text="✅ Verified. Return to the app to complete login.")
+    try:
+        UserRepository().update(
+            user_id=str(ch.get("user_id") or ""),
+            data={
+                "telegram_chat_id": str(chat_id),
+                "telegram_connected_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        log.info("telegram_chat_linked", extra={"extra": {"user_id": str(ch.get("user_id") or ""), "chat_id": str(chat_id)}})
+    except Exception:
+        log.exception("telegram_chat_link_failed", extra={"extra": {"user_id": str(ch.get("user_id") or ""), "chat_id": str(chat_id)}})
     return {"ok": True}
