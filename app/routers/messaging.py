@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 import logging
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -89,3 +91,60 @@ async def twilio_inbound(request: Request):
         twiml.message("OK")
 
     return Response(content=str(twiml), media_type="application/xml")
+
+# --- Telegram inbound (reverse-OTP verification) ---
+@router.post("/telegram/inbound")
+async def telegram_inbound(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_json")
+
+    msg = (payload or {}).get("message") or {}
+    text = str(msg.get("text") or "").strip()
+    chat = (msg.get("chat") or {})
+    chat_id = chat.get("id")
+
+    if not chat_id:
+        raise HTTPException(status_code=400, detail="missing_chat_id")
+
+    parts = text.split()
+    if len(parts) < 3 or parts[0].upper() != "LOGIN":
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Send: LOGIN <code> <phone_e164>")
+        return {"ok": True}
+
+    code = parts[1].strip().upper()
+    phone = parts[2].strip()
+
+    user_id = user_id_from_phone_e164(phone)
+    if not user_id:
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Invalid phone. Use E.164 like +62812...")
+        return {"ok": True}
+
+    ch = AuthRepository().get_challenge_by_code(code)
+    if not ch:
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Code not found. Request a new login code in the app.")
+        return {"ok": True}
+
+    if str(ch.get("user_id") or "") != user_id:
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Account mismatch. Request a new code.")
+        return {"ok": True}
+    if str(ch.get("phone_e164") or "") != phone:
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Phone mismatch. Use the same phone used in auth/start.")
+        return {"ok": True}
+
+    now = int(time.time())
+    exp = int(ch.get("expires_at") or 0)
+    if exp <= now:
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Code expired. Request a new login code in the app.")
+        return {"ok": True}
+    if ch.get("consumed_at"):
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Code already used. Request a new login code.")
+        return {"ok": True}
+
+    AuthRepository().mark_verified(str(ch.get("challenge_id") or ""), from_phone_e164=phone)
+    flags = AuthRepository().activate_user_if_needed(user_id=str(ch.get("user_id") or ""), phone_e164=phone)
+    log.info("auth_verified_and_activated", extra={"extra": {"user_id": str(ch.get("user_id") or ""), **(flags or {})}})
+
+    MessageDispatcher().send_telegram(chat_id=str(chat_id), text="✅ Verified. Return to the app to complete login.")
+    return {"ok": True}

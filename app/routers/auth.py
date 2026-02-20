@@ -41,9 +41,6 @@ def ui_auth_start(body: AuthStartBody):
         if sub.get("status") != "active":
             raise HTTPException(status_code=403, detail="subscription_inactive")
 
-    if not settings.TWILIO_FROM_NUMBER:
-        raise HTTPException(status_code=500, detail="twilio_from_number_not_set")
-
     # Code is short human friendly; challenge_id is deterministic hash of code for lookup on inbound.
     code = "GL-" + "".join([c for c in __import__("secrets").token_urlsafe(6).upper() if c.isalnum()][:6])
     try:
@@ -53,7 +50,7 @@ def ui_auth_start(body: AuthStartBody):
         log.info("auth_rate_limited", extra={"extra": {"user_id": user_id, "reason": reason}})
         raise HTTPException(status_code=429, detail=reason)
 
-    instr = f"Text: LOGIN {code} to {settings.TWILIO_FROM_NUMBER} (within {CHALLENGE_TTL_SEC//60} minutes)."
+    instr = f"Send Telegram message to the bot: LOGIN {code} {phone} (within {CHALLENGE_TTL_SEC//60} minutes)."
     log.info("auth_start_issued", extra={"extra": {"user_id": user_id}})
 
     return {"ok": True, "user_id": user_id, "code": code, "expires_in_sec": CHALLENGE_TTL_SEC, "instructions": instr}
