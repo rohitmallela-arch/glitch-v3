@@ -146,7 +146,15 @@ async def telegram_inbound(request: Request):
     flags = AuthRepository().activate_user_if_needed(user_id=str(ch.get("user_id") or ""), phone_e164=phone)
     log.info("auth_verified_and_activated", extra={"extra": {"user_id": str(ch.get("user_id") or ""), **(flags or {})}})
 
-    MessageDispatcher().send_telegram(chat_id=str(chat_id), text="✅ Verified. Return to the app to complete login.")
+    MessageDispatcher().send_telegram(
+        chat_id=str(chat_id),
+        text=(
+            "✅ You're verified.\n\n"
+            "Welcome to Glitch.\n"
+            "You'll receive alerts only when FDA shortage status changes.\n\n"
+            "You’re now securely connected."
+        )
+    )
     try:
         UserRepository().update(
             user_id=str(ch.get("user_id") or ""),

@@ -35,12 +35,6 @@ def ui_auth_start(body: AuthStartBody):
     if not user:
         raise HTTPException(status_code=404, detail="user_not_found")
 
-    # Optional: require active subscription if payments enabled
-    if settings.PAYMENTS_ENABLED:
-        sub = SubscriptionRepository().get_by_user(user_id) or {}
-        if sub.get("status") != "active":
-            raise HTTPException(status_code=403, detail="subscription_inactive")
-
     # Code is short human friendly; challenge_id is deterministic hash of code for lookup on inbound.
     code = "GL-" + "".join([c for c in __import__("secrets").token_urlsafe(6).upper() if c.isalnum()][:6])
     try:
@@ -119,4 +113,5 @@ def ui_me(request: Request):
             "status": sub.get("status", "none"),
         },
         "watchlist": {"count": len(watch), "items": watch[:50]},
+        "subscription_required": not (sub and sub.get("status") == "active"),
     }
