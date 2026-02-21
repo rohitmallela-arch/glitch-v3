@@ -8,6 +8,7 @@ from fastapi import Header, HTTPException, Request
 
 from config.settings import settings
 from repos.subscription_repo import SubscriptionRepository
+from models.schema import COL_SUBSCRIPTIONS
 from repos.user_repo import UserRepository
 from repos.watchlist_repo import WatchlistRepository
 from repos.ndc_watchers_repo import NDCWatchersRepository
@@ -113,3 +114,4 @@ class StripeWebhookHandler:
                 log.warning("subscription lifecycle event with no matching user", extra={"extra": {"stripe_subscription_id": sub_id, "customer": cust_id, "event_type": event_type}})
 
         return {"ok": True, "event_type": event_type, "event_id": event_id}
+# deploy-1771671709
