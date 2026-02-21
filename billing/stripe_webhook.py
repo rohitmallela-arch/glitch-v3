@@ -85,17 +85,30 @@ class StripeWebhookHandler:
 
             # MVP: locate user by scanning subscriptions collection
             # (Scale path: add subscription_id -> user_id index.)
-            for snap in self.repo.db.collection(COL_SUBSCRIPTIONS).stream():
-                data = snap.to_dict() or {}
-                if data.get("stripe_subscription_id") == sub_id or data.get("stripe_customer_id") == cust_id:
-                    user_id = snap.id
-                    self.repo.upsert(user_id, {
-                        "status": "inactive",
-                        "last_event_id": event_id,
-                        "last_event_type": event_type,
-                    })
-                    log.info("subscription marked inactive", extra={"extra": {"user_id": user_id, "event_type": event_type}})
-                    break
+            query = (
+                self.repo.db.collection(COL_SUBSCRIPTIONS)
+                .where("stripe_subscription_id", "==", sub_id)
+                .limit(1)
+            )
+            snaps = list(query.stream())
+
+            if not snaps and cust_id:
+                query = (
+                    self.repo.db.collection(COL_SUBSCRIPTIONS)
+                    .where("stripe_customer_id", "==", cust_id)
+                    .limit(1)
+                )
+                snaps = list(query.stream())
+
+            if snaps:
+                snap = snaps[0]
+                user_id = snap.id
+                self.repo.upsert(user_id, {
+                    "status": "inactive",
+                    "last_event_id": event_id,
+                    "last_event_type": event_type,
+                })
+                log.info("subscription marked inactive", extra={"extra": {"user_id": user_id, "event_type": event_type}})
             else:
                 log.warning("subscription lifecycle event with no matching user", extra={"extra": {"stripe_subscription_id": sub_id, "customer": cust_id, "event_type": event_type}})
 
