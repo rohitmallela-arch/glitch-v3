@@ -85,7 +85,7 @@ class StripeWebhookHandler:
 
             # MVP: locate user by scanning subscriptions collection
             # (Scale path: add subscription_id -> user_id index.)
-            for snap in self.repo.db.collection("subscriptions").stream():
+            for snap in self.repo.db.collection(COL_SUBSCRIPTIONS).stream():
                 data = snap.to_dict() or {}
                 if data.get("stripe_subscription_id") == sub_id or data.get("stripe_customer_id") == cust_id:
                     user_id = snap.id
