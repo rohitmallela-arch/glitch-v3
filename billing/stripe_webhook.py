@@ -78,13 +78,25 @@ class StripeWebhookHandler:
                     "last_event_id": event_id,
                     "last_event_type": event_type,
                 })
-        elif event_type in ("customer.subscription.updated", "customer.subscription.deleted"):
-            sub_id = obj.get("id")
-            status = obj.get("status")
+        elif event_type in ("customer.subscription.deleted", "invoice.payment_failed"):
+            # Fail-closed: mark subscription inactive
+            sub_id = obj.get("id") or obj.get("subscription")
             cust_id = obj.get("customer")
-            # Find by user_id isn't directly possible without an index; we store under user_id. MVP: rely on checkout.session.completed to set user_id doc.
-            # If you need full fidelity, add an index collection mapping subscription_id -> user_id.
-            # We'll record the event for observability only.
-            log.info("subscription event received", extra={"extra": {"stripe_subscription_id": sub_id, "status": status, "customer": cust_id}})
+
+            # MVP: locate user by scanning subscriptions collection
+            # (Scale path: add subscription_id -> user_id index.)
+            for snap in self.repo.db.collection("subscriptions").stream():
+                data = snap.to_dict() or {}
+                if data.get("stripe_subscription_id") == sub_id or data.get("stripe_customer_id") == cust_id:
+                    user_id = snap.id
+                    self.repo.upsert(user_id, {
+                        "status": "inactive",
+                        "last_event_id": event_id,
+                        "last_event_type": event_type,
+                    })
+                    log.info("subscription marked inactive", extra={"extra": {"user_id": user_id, "event_type": event_type}})
+                    break
+            else:
+                log.warning("subscription lifecycle event with no matching user", extra={"extra": {"stripe_subscription_id": sub_id, "customer": cust_id, "event_type": event_type}})
 
         return {"ok": True, "event_type": event_type, "event_id": event_id}
