@@ -7,7 +7,7 @@ from config.settings import settings
 from repos.shortage_repo import ShortageRepository
 from repos.watchlist_repo import WatchlistRepository
 from repos.watchers_repo import NDCWatchersRepository
-from services.entitlement_service import EntitlementService
+from billing.entitlements import EntitlementService
 from utils.auth import require_session
 from utils.ndc import normalize_ndc_to_11
 

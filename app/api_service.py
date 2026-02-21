@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from ops.structured_logger import setup_logging
+from billing.entitlements import SubscriptionRequired
 
 from app.routers.health import router as health_router
 from app.routers.users import router as users_router
@@ -17,6 +19,14 @@ from app.routers.auth import router as auth_router
 setup_logging()
 
 app = FastAPI(title="Glitch API", version="3.0.0")
+
+
+@app.exception_handler(SubscriptionRequired)
+async def subscription_required_handler(request, exc: SubscriptionRequired):
+    return JSONResponse(
+        status_code=403,
+        content={"detail": "subscription_required", "status": exc.status, "upgrade_url": exc.upgrade_url},
+    )
 
 # CORS needed for browser-based /ui/* transparency endpoints.
 app.add_middleware(

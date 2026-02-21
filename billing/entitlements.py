@@ -7,6 +7,13 @@ from config.settings import settings
 from repos.subscription_repo import SubscriptionRepository
 
 
+class SubscriptionRequired(Exception):
+    def __init__(self, upgrade_url: str = "/api/checkout_session", status: str = "inactive"):
+        super().__init__("subscription_required")
+        self.upgrade_url = upgrade_url
+        self.status = status
+
+
 class EntitlementService:
     def __init__(self, repo: Optional[SubscriptionRepository] = None):
         self.repo = repo or SubscriptionRepository()
