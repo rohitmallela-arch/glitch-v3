@@ -16,12 +16,11 @@ class CheckoutRequest(BaseModel):
 
 
 @router.post("/checkout_session")
-def checkout_session(req: CheckoutRequest):
-    from utils.ids import user_id_from_phone_e164
-    user_id = req.user_id or (user_id_from_phone_e164(req.phone_e164 or "") if req.phone_e164 else "")
-    if not user_id:
-        raise ValueError("missing_user_id")
-    session = create_checkout_session(user_id=user_id, phone_e164=req.phone_e164, watchlist_ndcs=req.watchlist_ndcs)
+def checkout_session(request: Request, req: CheckoutRequest):
+    from utils.auth import require_session
+
+    user_id, phone = require_session(request)
+    session = create_checkout_session(user_id=user_id, phone_e164=phone, watchlist_ndcs=req.watchlist_ndcs)
     return {"ok": True, "checkout_url": session.get("url"), "id": session.get("id")}
 
 
