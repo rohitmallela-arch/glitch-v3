@@ -6,10 +6,10 @@ from pydantic import BaseModel, Field
 from config.settings import settings
 from repos.shortage_repo import ShortageRepository
 from repos.watchlist_repo import WatchlistRepository
-from repos.watchers_repo import NDCWatchersRepository
+from repos.ndc_watchers_repo import NDCWatchersRepository
 from billing.entitlements import EntitlementService
 from utils.auth import require_session
-from utils.ndc import normalize_ndc_to_11
+from ndc.normalizer import normalize_ndc_to_11
 
 router = APIRouter()
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
-from fastapi import HTTPException
 
 from config.settings import settings
 from repos.subscription_repo import SubscriptionRepository
@@ -23,9 +22,12 @@ class EntitlementService:
             # When payments disabled, allow everything (useful for pilots).
             return {"status": "bypassed", "user_id": user_id}
 
-        sub = self.repo.get_by_user(user_id)
+        sub = self.repo.get_by_user(user_id) or {}
         if not sub:
-            raise HTTPException(status_code=402, detail="subscription_required")
-        if sub.get("status") != "active":
-            raise HTTPException(status_code=402, detail=f"subscription_not_active:{sub.get('status')}")
+            raise SubscriptionRequired(status="inactive", upgrade_url="/api/checkout_session")
+
+        status = str(sub.get("status") or "inactive")
+        if status != "active":
+            raise SubscriptionRequired(status=status, upgrade_url="/api/checkout_session")
+
         return sub
