@@ -1,9 +1,9 @@
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/glitch/glitch:$SHORT_SHA','.']
+    args: ['build','-t','us-central1-docker.pkg.dev/$PROJECT_ID/glitch/glitch:${_TAG}','.']
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push','us-central1-docker.pkg.dev/$PROJECT_ID/glitch/glitch:$SHORT_SHA']
+    args: ['push','us-central1-docker.pkg.dev/$PROJECT_ID/glitch/glitch:${_TAG}']
 images:
-  - 'us-central1-docker.pkg.dev/$PROJECT_ID/glitch/glitch:$SHORT_SHA'
+  - 'us-central1-docker.pkg.dev/$PROJECT_ID/glitch/glitch:${_TAG}'
 options:
   logging: CLOUD_LOGGING_ONLY
