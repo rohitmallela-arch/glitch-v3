@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sys
 import time
 from typing import Any, Dict
@@ -14,6 +15,8 @@ class JsonFormatter(logging.Formatter):
             "message": record.getMessage(),
             "logger": record.name,
             "time_unix": time.time(),
+            "revision": os.getenv("K_REVISION") or "",
+            "service": os.getenv("K_SERVICE") or "",
         }
         if hasattr(record, "extra") and isinstance(record.extra, dict):
             payload.update(record.extra)
