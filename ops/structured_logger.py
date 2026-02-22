@@ -30,4 +30,8 @@ def setup_logging(level: str = "INFO") -> None:
     root.setLevel(level)
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JsonFormatter())
+
+    # Prevent accidental secret leakage: httpx can log full URLs (incl. tokens) at INFO
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     root.handlers[:] = [handler]

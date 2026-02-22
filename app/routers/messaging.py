@@ -110,7 +110,7 @@ async def telegram_inbound(request: Request):
 
     parts = text.split()
     if len(parts) < 3 or parts[0].upper() != "LOGIN":
-        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Send: LOGIN <code> <phone_e164>")
+        MessageDispatcher().send_telegram(chat_id=str(chat_id), text="Send: LOGIN CODE +62812XXXXXXXXX")
         return {"ok": True}
 
     code = parts[1].strip().upper()
