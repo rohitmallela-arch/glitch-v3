@@ -41,6 +41,19 @@ def run_delta_now(request: Request):
         raise
     try:
         result = upsert_and_detect_changes(recs, mode="delta")
+        changed = int((result or {}).get("changed", 0) or 0)
+        threshold = int(getattr(settings, "DELTA_MAX_ALLOWED_CHANGES", 200) or 200)
+        if changed > threshold:
+            log.error(
+                "delta_anomaly_guard_triggered",
+                extra={"extra": {
+                    "event": "delta_anomaly_guard_triggered",
+                    "mode": "delta",
+                    "changed": changed,
+                    "threshold": threshold,
+                }},
+            )
+            raise HTTPException(status_code=503, detail="delta_anomaly_guard_triggered")
     except Exception as e:
         log.error(
             "delta_error",

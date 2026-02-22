@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # Ingestion modes
     INGEST_MODE: str = Field(default="delta")  # baseline | delta
     MAX_SWEEP_ITEMS: int = Field(default=5000)
+
+    # Delta anomaly guard (alert storm protection)
+    # If changed > threshold, fail closed with 503 and do NOT proceed.
+    DELTA_MAX_ALLOWED_CHANGES: int = Field(default=200)
     OPENFDA_SHORTAGE_URL: str = Field(default="https://api.fda.gov/drug/shortages.json")
     OPENFDA_LIMIT: int = Field(default=100)
 
