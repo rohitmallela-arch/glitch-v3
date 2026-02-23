@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-import time
-
 import logging
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
-
-from messaging.dispatcher import MessageDispatcher
-from utils.ids import user_id_from_phone_e164
+import time
 from datetime import datetime, timezone
-from fastapi import Request
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
+from pydantic import BaseModel
 from twilio.request_validator import RequestValidator
 from twilio.twiml.messaging_response import MessagingResponse
+
 from config.settings import settings
-from repos.user_repo import UserRepository
+from messaging.dispatcher import MessageDispatcher
 from repos.auth_repo import AuthRepository
+from repos.telegram_chat_index_repo import TelegramChatIndexRepository
+from repos.user_repo import UserRepository
+from utils.ids import user_id_from_phone_e164
 
 log = logging.getLogger("glitch.router.messaging")
 router = APIRouter()
@@ -29,6 +29,7 @@ class WelcomeRequest(BaseModel):
 @router.post("/telegram/welcome")
 def telegram_welcome(req: WelcomeRequest):
     raise HTTPException(status_code=410, detail="deprecated_use_auth_and_link_flow")
+
 
 @router.post("/twilio/inbound")
 async def twilio_inbound(request: Request):
@@ -67,7 +68,7 @@ async def twilio_inbound(request: Request):
         if not ch:
             twiml.message("Invalid or expired code. Please request a new login code in the app.")
             return Response(content=str(twiml), media_type="application/xml")
-        now = int(__import__("time").time())
+        now = int(time.time())
         exp = int(ch.get("expires_at") or 0)
         if exp <= now or ch.get("consumed_at"):
             twiml.message("Code expired. Please request a new login code in the app.")
@@ -91,6 +92,7 @@ async def twilio_inbound(request: Request):
         twiml.message("OK")
 
     return Response(content=str(twiml), media_type="application/xml")
+
 
 # --- Telegram inbound (reverse-OTP verification) ---
 @router.post("/telegram/inbound")
@@ -146,24 +148,49 @@ async def telegram_inbound(request: Request):
     flags = AuthRepository().activate_user_if_needed(user_id=str(ch.get("user_id") or ""), phone_e164=phone)
     log.info("auth_verified_and_activated", extra={"extra": {"user_id": str(ch.get("user_id") or ""), **(flags or {})}})
 
+    # Enforce uniqueness: one Telegram chat -> one canonical user.
+    idx = TelegramChatIndexRepository()
+    existing = idx.get(str(chat_id)) or {}
+    existing_uid = str(existing.get("canonical_user_id") or "").strip()
+    this_uid = str(ch.get("user_id") or "").strip()
+
+    if existing_uid and existing_uid != this_uid:
+        MessageDispatcher().send_telegram(
+            chat_id=str(chat_id),
+            text=(
+                "⚠️ This Telegram account is already linked to a different Glitch user.\n"
+                "If you think this is wrong, request a fresh login code in the app."
+            ),
+        )
+        log.warning(
+            "telegram_chat_link_conflict",
+            extra={"extra": {"chat_id": str(chat_id), "existing_user_id": existing_uid, "attempt_user_id": this_uid}},
+        )
+        return {"ok": True, "error": "telegram_chat_already_linked"}
+
+    # Create/refresh mapping (idempotent)
+    idx.set(str(chat_id), this_uid)
+
     MessageDispatcher().send_telegram(
         chat_id=str(chat_id),
         text=(
             "✅ You're verified.\n\n"
             "Welcome to Glitch.\n"
             "You'll receive alerts only when FDA shortage status changes.\n\n"
-            "You’re now securely connected."
-        )
+            "You're now securely connected."
+        ),
     )
+
     try:
         UserRepository().update(
-            user_id=str(ch.get("user_id") or ""),
+            user_id=this_uid,
             data={
                 "telegram_chat_id": str(chat_id),
                 "telegram_connected_at": datetime.now(timezone.utc).isoformat(),
             },
         )
-        log.info("telegram_chat_linked", extra={"extra": {"user_id": str(ch.get("user_id") or ""), "chat_id": str(chat_id)}})
+        log.info("telegram_chat_linked", extra={"extra": {"user_id": this_uid, "chat_id": str(chat_id)}})
     except Exception:
-        log.exception("telegram_chat_link_failed", extra={"extra": {"user_id": str(ch.get("user_id") or ""), "chat_id": str(chat_id)}})
+        log.exception("telegram_chat_link_failed", extra={"extra": {"user_id": this_uid, "chat_id": str(chat_id)}})
+
     return {"ok": True}
