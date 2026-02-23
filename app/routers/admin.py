@@ -175,3 +175,63 @@ def test_alert(request: Request, body: TestAlertRequest, claims: OperatorClaims 
         "telegram_response_ok": bool(resp.get("ok", False)),
         "telegram_response": resp,
     }
+
+
+class TestShortageAlertRequest(BaseModel):
+    user_id: str
+    ndc_digits: str
+
+
+@router.post("/test_shortage_alert")
+def test_shortage_alert(request: Request, body: TestShortageAlertRequest):
+    """
+    Deterministic forced shortage-change-style Telegram alert (uses alerts.formatter).
+    - Operator auth required (OIDC)
+    - Input: { "user_id": "u_...", "ndc_digits": "00002431208" }
+    - Fetches shortages/{ndc11} rollup doc and uses presentation/generic/brand fields
+    - Sends via AlertDispatcher (formatter path), so we can verify "name + hyphenated NDC"
+    """
+    verify_operator_request(request)
+
+    user_id = (body.user_id or "").strip()
+    ndc11 = (body.ndc_digits or "").strip()
+
+    users_repo = UserRepository()
+    user = users_repo.get(user_id)
+    if not user:
+        return {"ok": False, "error": "user_not_found", "user_id": user_id}
+
+    chat_id = user.get("telegram_chat_id")
+    if not chat_id:
+        return {"ok": False, "error": "telegram_not_connected", "user_id": user_id}
+
+    from repos.shortage_repo import ShortageRepository
+    from alerts.dispatch import AlertDispatcher
+
+    shortage = ShortageRepository().get(ndc11) or {}
+    if not shortage:
+        return {"ok": False, "error": "shortage_not_found", "ndc_digits": ndc11}
+
+    # Use real shortage fields; fake a status transition deterministically.
+    new_status = (shortage.get("status") or "unknown").strip() or "unknown"
+    old_status = "unknown" if new_status == "unknown" else "previous_status"
+
+    payload = {
+        "ndc_digits": ndc11,
+        "brand_name": shortage.get("brand_name") or "",
+        "generic_name": shortage.get("generic_name") or "",
+        "manufacturer": shortage.get("manufacturer") or "",
+        "presentation": shortage.get("presentation") or "",
+        "old_status": old_status,
+        "new_status": new_status,
+        "last_updated": shortage.get("last_updated") or "",
+    }
+
+    resp = AlertDispatcher().dispatch_telegram(user_id=user_id, chat_id=str(chat_id), payload=payload, sweep_id="admin_test_shortage_alert")
+
+    log.info(
+        "admin_test_shortage_alert_sent",
+        extra={"extra": {"event": "admin_test_shortage_alert_sent", "user_id": user_id, "ndc_digits": ndc11, "telegram_ok": bool(resp.get("ok", False))}},
+    )
+
+    return {"ok": True, "user_id": user_id, "ndc_digits": ndc11, "telegram_response_ok": bool(resp.get("ok", False)), "telegram_response": resp}
