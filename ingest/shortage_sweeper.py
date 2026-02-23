@@ -247,6 +247,7 @@ def upsert_and_detect_changes(records: List[Dict[str, Any]], mode: str) -> Dict[
                         "brand_name": doc.get("brand_name"),
                         "generic_name": doc.get("generic_name"),
                         "manufacturer": doc.get("manufacturer"),
+                        "presentation": doc.get("presentation"),
                         "old_status": old_status,
                         "new_status": new_status,
                         "last_updated": doc.get("last_updated"),
