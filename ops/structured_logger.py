@@ -7,6 +7,8 @@ import sys
 import time
 from typing import Any, Dict
 
+from utils.request_context import get_request_id
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -20,6 +22,10 @@ class JsonFormatter(logging.Formatter):
         }
         if hasattr(record, "extra") and isinstance(record.extra, dict):
             payload.update(record.extra)
+
+        rid = get_request_id()
+        if rid and (payload.get("request_id") is None or payload.get("request_id") == ""):
+            payload["request_id"] = rid
         if record.exc_info:
             payload["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(payload, ensure_ascii=False)

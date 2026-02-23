@@ -12,6 +12,7 @@ from config.settings import settings
 from ingest.dailymed_bulk import build_ndc_index_from_bulk_zip
 from ingest.shortage_sweeper import sweep_all_shortages, upsert_and_detect_changes
 from ops.structured_logger import setup_logging
+from utils.request_context import clear_request_id, set_request_id
 from security.operator_auth import verify_operator_request
 
 setup_logging()
@@ -29,7 +30,11 @@ def _get_request_id(request: Request) -> str:
 async def request_id_middleware(request: Request, call_next):
     rid = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = rid
-    response = await call_next(request)
+    set_request_id(rid)
+    try:
+        response = await call_next(request)
+    finally:
+        clear_request_id()
     response.headers["X-Request-Id"] = rid
     return response
 

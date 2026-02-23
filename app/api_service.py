@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from billing.entitlements import SubscriptionRequired
 from ops.structured_logger import setup_logging
+from utils.request_context import clear_request_id, set_request_id
 
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
@@ -36,7 +37,11 @@ def _get_request_id(request: Request) -> str:
 async def request_id_middleware(request: Request, call_next):
     rid = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = rid
-    response = await call_next(request)
+    set_request_id(rid)
+    try:
+        response = await call_next(request)
+    finally:
+        clear_request_id()
     response.headers["X-Request-Id"] = rid
     return response
 
