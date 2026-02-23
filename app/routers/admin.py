@@ -238,7 +238,7 @@ def test_shortage_alert(request: Request, body: TestShortageAlertRequest):
     return {"ok": True, "user_id": user_id, "ndc_digits": ndc11, "telegram_response_ok": bool(resp.get("ok", False)), "telegram_response": resp}
 
 
-@router.post("/admin/telegram_link_test")
+@router.post("/telegram_link_test")
 def admin_telegram_link_test(body: dict, request: Request):
     # Operator-only: deterministic invariant test harness.
     _require_operator(request)
