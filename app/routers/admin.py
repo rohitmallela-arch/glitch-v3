@@ -241,7 +241,7 @@ def test_shortage_alert(request: Request, body: TestShortageAlertRequest):
 @router.post("/telegram_link_test")
 def admin_telegram_link_test(body: dict, request: Request):
     # Operator-only: deterministic invariant test harness.
-    _require_operator(request)
+    verify_operator_request(request)
 
     chat_id = str((body or {}).get("chat_id") or "").strip()
     user_id = str((body or {}).get("user_id") or "").strip()
