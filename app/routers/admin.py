@@ -11,7 +11,6 @@ from ingest.shortage_sweeper import sweep_all_shortages, upsert_and_detect_chang
 from messaging.dispatcher import MessageDispatcher
 from repos.subscription_repo import SubscriptionRepository
 from repos.user_repo import UserRepository
-from repos.telegram_chat_index_repo import TelegramChatIndexRepository
 from security.operator_auth import OperatorClaims, verify_operator_request
 
 router = APIRouter()
@@ -238,22 +237,3 @@ def test_shortage_alert(request: Request, body: TestShortageAlertRequest):
     return {"ok": True, "user_id": user_id, "ndc_digits": ndc11, "telegram_response_ok": bool(resp.get("ok", False)), "telegram_response": resp}
 
 
-@router.post("/telegram_link_test")
-def admin_telegram_link_test(body: dict, request: Request):
-    # Operator-only: deterministic invariant test harness.
-    verify_operator_request(request)
-
-    chat_id = str((body or {}).get("chat_id") or "").strip()
-    user_id = str((body or {}).get("user_id") or "").strip()
-    if not chat_id or not user_id:
-        raise HTTPException(status_code=400, detail="chat_id and user_id required")
-
-    idx = TelegramChatIndexRepository()
-    existing = idx.get(chat_id) or {}
-    existing_uid = str(existing.get("canonical_user_id") or "").strip()
-
-    if existing_uid and existing_uid != user_id:
-        return {"ok": True, "linked": False, "error": "telegram_chat_already_linked", "existing_user_id": existing_uid}
-
-    idx.set(chat_id, user_id)
-    return {"ok": True, "linked": True, "canonical_user_id": user_id}
